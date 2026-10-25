@@ -1,0 +1,59 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: inspection-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_DATABASE}
+
+    ports:
+      - "127.0.0.1:${DB_PORT}:5432"
+
+    volumes:
+      - inspection_postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${DB_USERNAME} -d ${DB_DATABASE}"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: inspection-redis
+    restart: unless-stopped
+
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+
+    ports:
+      - "127.0.0.1:${REDIS_PORT}:6379"
+
+    command:
+      - /bin/sh
+      - -c
+      - 'exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"'
+
+    volumes:
+      - inspection_redis_data:/data
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  inspection_postgres_data:
+  inspection_redis_data:

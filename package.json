@@ -1,0 +1,19 @@
+{
+  "name": "inspection-platform",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@10.11.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @inspection/api --filter @inspection/admin --filter @inspection/web dev",
+    "dev:api": "pnpm --filter @inspection/api dev",
+    "dev:admin": "pnpm --filter @inspection/admin dev",
+    "dev:web": "pnpm --filter @inspection/web dev",
+    "build": "pnpm -r --if-present build",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:migration:show": "pnpm --filter @inspection/api db:migration:show",
+    "db:migration:run": "pnpm --filter @inspection/api db:migration:run",
+    "db:migration:revert": "pnpm --filter @inspection/api db:migration:revert"
+  }
+}
