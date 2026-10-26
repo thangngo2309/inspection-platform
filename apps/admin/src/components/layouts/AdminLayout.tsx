@@ -16,7 +16,6 @@ import {
   Typography,
   useMediaQuery,
   useTheme,
-  Avatar,
   Stack,
   Tooltip,
 } from "@mui/material";
@@ -31,7 +30,11 @@ import {
   EngineeringOutlined,
   SettingsOutlined,
   ChevronLeft,
+  MiscellaneousServicesOutlined,
+  AccessTimeOutlined,
+  EventAvailableOutlined,
 } from "@mui/icons-material";
+import { HAccountMenu } from "../common/HAccountMenu";
 
 const DRAWER_WIDTH = 260;
 
@@ -65,6 +68,21 @@ const navigation = [
     label: "Nhân viên",
     path: "/staff",
     icon: <EngineeringOutlined />,
+  },
+  {
+    label: "Bố trí nhân viên",
+    path: "/staff-schedule",
+    icon: <EventAvailableOutlined />,
+  },
+  {
+    label: "Dịch vụ",
+    path: "/services",
+    icon: <MiscellaneousServicesOutlined />,
+  },
+  {
+    label: "Khung giờ đăng kiểm",
+    path: "/slots",
+    icon: <AccessTimeOutlined />,
   },
   {
     label: "Cấu hình",
@@ -223,16 +241,7 @@ export function AdminLayout({ children }: { children: ReactNode }) {
           </Typography>
 
           <Stack direction="row" sx={{ alignItems: "center", spacing: 1 }}>
-            <Avatar
-              sx={{
-                width: 34,
-                height: 34,
-                bgcolor: "primary.main",
-                fontSize: 13,
-              }}
-            >
-              AD
-            </Avatar>
+            <HAccountMenu />
           </Stack>
         </Toolbar>
       </AppBar>

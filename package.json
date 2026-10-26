@@ -14,6 +14,7 @@
     "db:down": "docker compose down",
     "db:migration:show": "pnpm --filter @inspection/api db:migration:show",
     "db:migration:run": "pnpm --filter @inspection/api db:migration:run",
-    "db:migration:revert": "pnpm --filter @inspection/api db:migration:revert"
+    "db:migration:revert": "pnpm --filter @inspection/api db:migration:revert",
+    "db:seed:super-admin": "pnpm --filter @inspection/api db:seed:super-admin"
   }
 }

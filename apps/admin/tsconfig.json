@@ -29,6 +29,6 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
     "**/*.mts"
-  ],
+, "../web/src/components/common/HAccountActions.tsx"  ],
   "exclude": ["node_modules"]
 }

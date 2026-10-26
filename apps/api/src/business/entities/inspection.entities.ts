@@ -398,11 +398,26 @@ export class Booking extends BaseEntity {
   @Column({ name: 'booking_code', type: 'varchar' })
   bookingCode!: string;
 
-  @Column({ name: 'customer_id', type: 'bigint' })
-  customerId!: string;
+  @Column({
+    name: 'customer_id',
+    type: 'bigint',
+    nullable: true,
+  })
+  customerId!: string | null;
 
-  @Column({ name: 'vehicle_id', type: 'bigint' })
-  vehicleId!: string;
+  @Column({
+    name: 'vehicle_id',
+    type: 'bigint',
+    nullable: true,
+  })
+  vehicleId!: string | null;
+
+  @Column({
+    name: 'vehicle_snapshot',
+    type: 'jsonb',
+    nullable: true,
+  })
+  vehicleSnapshot!: Record<string, unknown> | null;
 
   @Column({ name: 'center_id', type: 'bigint' })
   centerId!: string;
@@ -505,8 +520,19 @@ export class Booking extends BaseEntity {
   @Column({ name: 'internal_note', type: 'text', nullable: true })
   internalNote!: string | null;
 
-  @Column({ name: 'phone_verified_at', type: 'timestamptz' })
-  phoneVerifiedAt!: Date;
+  @Column({
+    name: 'phone_verified_at',
+    type: 'timestamptz',
+    nullable: true,
+  })
+  phoneVerifiedAt!: Date | null;
+
+  @Column({
+    name: 'customer_email',
+    type: 'varchar',
+    nullable: true,
+  })
+  customerEmail!: string | null;
 
   @Column({ name: 'confirmed_at', type: 'timestamptz', nullable: true })
   confirmedAt!: Date | null;
@@ -574,6 +600,13 @@ export class StaffAssignment extends BaseEntity {
 
   @Column({ type: 'text', nullable: true })
   note!: string | null;
+
+  @Column({
+    name: 'slot_id',
+    type: 'bigint',
+    nullable: true,
+  })
+  slotId!: string | null;
 }
 
 // ===========================================

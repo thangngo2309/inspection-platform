@@ -23,14 +23,17 @@
     "dev": "nest start --watch",
     "db:migration:show": "node --import tsx ./node_modules/typeorm/cli.js migration:show -d src/database/data-source.ts",
     "db:migration:run": "node --import tsx ./node_modules/typeorm/cli.js migration:run -d src/database/data-source.ts",
-    "db:migration:revert": "node --import tsx ./node_modules/typeorm/cli.js migration:revert -d src/database/data-source.ts"
+    "db:migration:revert": "node --import tsx ./node_modules/typeorm/cli.js migration:revert -d src/database/data-source.ts",
+    "db:seed:super-admin": "tsx src/database/seed-super-admin.ts"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",
     "@nestjs/config": "^12.0.1",
     "@nestjs/core": "^12.0.1",
+    "@nestjs/jwt": "^12.0.3",
     "@nestjs/platform-express": "^12.0.1",
     "@nestjs/typeorm": "^12.0.2",
+    "bcryptjs": "^3.0.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "dotenv": "^18.0.9",

@@ -1,4 +1,5 @@
 import axios from "axios";
+import { getAccessToken } from "./auth";
 
 export const apiClient = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:9000/api",
@@ -8,14 +9,20 @@ export const apiClient = axios.create({
   },
 });
 
+apiClient.interceptors.request.use((config) => {
+  const token = getAccessToken();
+
+  if (token) {
+    config.headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  return config;
+});
+
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (!error.response) {
-      return Promise.reject(new Error("Không thể kết nối tới máy chủ."));
-    }
-
-    const message = error.response.data?.message;
+    const message = error.response?.data?.message;
 
     return Promise.reject(
       new Error(
@@ -23,7 +30,7 @@ apiClient.interceptors.response.use(
           ? message.join(", ")
           : typeof message === "string"
           ? message
-          : "Có lỗi xảy ra. Vui lòng thử lại."
+          : "Không thể xử lý yêu cầu. Vui lòng thử lại."
       )
     );
   }

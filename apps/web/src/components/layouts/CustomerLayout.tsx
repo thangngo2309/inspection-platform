@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   X,
 } from "lucide-react";
+import { HAccountActions } from "../common/HAccountActions";
 
 const navigation = [
   { label: "Trang chủ", href: "/" },
@@ -69,6 +70,8 @@ export function CustomerLayout({ children }: { children: ReactNode }) {
               <CalendarDays size={17} />
               Đặt lịch ngay
             </Link>
+
+            <HAccountActions />
           </div>
 
           <button

@@ -24,6 +24,7 @@ import {
   AuditLog,
   SystemSetting,
 } from './entities/inspection.entities.js';
+import { StaffSlotAvailability } from './entities/staff-slot-availability.entity.js';
 
 export const BUSINESS_ENTITIES = [
   User,
@@ -49,4 +50,5 @@ export const BUSINESS_ENTITIES = [
   Notification,
   AuditLog,
   SystemSetting,
+  StaffSlotAvailability
 ] as const;
