@@ -23,6 +23,10 @@ import { SlotService } from './slots/slot.service.js';
 import { StaffService } from './staff/staff.service.js';
 import { StaffController } from './staff/staff.controller.js';
 import { SlotController } from './slots/slot.controller.js';
+import { CustomerVehiclesController } from './customer-vehicles/customer-vehicles.controller.js';
+import { CustomerVehiclesService } from './customer-vehicles/customer-vehicles.service.js';
+import { BookingLookupController } from './bookings/booking-lookup.controller.js';
+import { BookingLookupService } from './bookings/booking-lookup.service.js';
 
 @Module({
   imports: [
@@ -38,6 +42,8 @@ import { SlotController } from './slots/slot.controller.js';
     AdminCentersController,
     StaffController,
     SlotController,
+    CustomerVehiclesController,
+    BookingLookupController,
   ],
   providers: [
     AuthService,
@@ -47,6 +53,8 @@ import { SlotController } from './slots/slot.controller.js';
     CatalogService,
     StaffService,
     SlotService,
+    CustomerVehiclesService,
+    BookingLookupService,
   ],
   exports: [
     TypeOrmModule,
