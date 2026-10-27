@@ -98,6 +98,23 @@ export default function VehiclesPage() {
           value ? new Date(value).toLocaleDateString("vi-VN") : "—",
       },
       {
+        field: "isRegistered",
+        headerName: "Nguồn phương tiện",
+        minWidth: 170,
+        renderCell: ({ row }) => (
+          <Chip
+            size="small"
+            variant="outlined"
+            color={row.isRegistered ? "success" : "default"}
+            label={
+              row.isRegistered
+                ? "Xe đã đăng ký"
+                : "Từ booking"
+            }
+          />
+        ),
+      },
+      {
         field: "actions",
         headerName: "Thao tác",
         minWidth: 140,

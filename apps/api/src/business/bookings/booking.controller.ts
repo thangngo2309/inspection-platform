@@ -127,3 +127,15 @@ export class AdminBookingController {
     return this.service.adminSlots({ centerId, date });
   }
 }
+
+@Controller('account/bookings')
+@UseGuards(AccessTokenGuard, RolesGuard)
+@Roles(UserRole.CUSTOMER)
+export class AccountBookingController {
+  constructor(private readonly service: BookingService) {}
+
+  @Post()
+  create(@Req() req: AuthenticatedRequest, @Body() dto: CreateBookingDto) {
+    return this.service.create(dto, req.authUser!.sub);
+  }
+}

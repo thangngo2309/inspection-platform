@@ -466,27 +466,20 @@ export class BookingService {
   // CUSTOMER CREATE BOOKING
   // ====================================================
 
-  async create(dto: CreateBookingDto) {
+  async create(dto: CreateBookingDto, userId?: string) {
     return this.db.transaction(async (manager: EntityManager) => {
-      // 1. Khóa slot để chống đặt vượt số suất
+      const customer = userId ? await this.getCustomer(manager, userId) : null;
+
+      // 1. Khóa slot, giữ nguyên cơ chế chống overbooking.
       const slot = await this.lockSlot(manager, dto.slotId);
 
       if (slot.status !== 'open') {
         throw new ConflictException('Khung giờ đã đóng nhận booking');
       }
 
-      if (
-        slot.centerId !== dto.centerId ||
-        slot.vehicleType !== dto.vehicleType
-      ) {
-        throw new BadRequestException(
-          'Khung giờ không phù hợp với trung tâm hoặc loại xe',
-        );
-      }
-
       this.validateFutureSlot(slot);
 
-      // 2. Kiểm tra trung tâm
+      // 2. Trung tâm và dịch vụ.
       const center = await manager.findOneBy(InspectionCenter, {
         id: dto.centerId,
         status: 'active',
@@ -496,9 +489,14 @@ export class BookingService {
         throw new NotFoundException('Trung tâm không hoạt động');
       }
 
+      if (slot.centerId !== center.id) {
+        throw new BadRequestException(
+          'Khung giờ không thuộc trung tâm đã chọn',
+        );
+      }
+
       await this.ensureCenterOpen(manager, center.id, slot.slotDate);
 
-      // 3. Kiểm tra dịch vụ
       const service = await manager.findOneBy(Service, {
         id: dto.serviceId,
         active: true,
@@ -508,21 +506,12 @@ export class BookingService {
         throw new NotFoundException('Dịch vụ không hợp lệ');
       }
 
-      // 4. Kiểm tra năng lực nhân viên
-      const capacity = await this.effectiveCapacity(manager, slot);
-
-      if (slot.reservedCount >= capacity) {
-        throw new ConflictException(
-          'Khung giờ đã hết suất đăng kiểm hoặc nhân viên phụ trách',
-        );
-      }
-
-      // 5. Chuẩn hóa thông tin liên hệ
+      // 3. Chuẩn hóa người liên hệ.
       const customerName = dto.customerName.trim();
       const customerPhone = this.normalizePhone(dto.customerPhone);
 
       if (!customerName) {
-        throw new BadRequestException('Vui lòng nhập tên người liên hệ');
+        throw new BadRequestException('Vui lòng nhập họ tên người liên hệ');
       }
 
       if (!/^0\d{9}$/.test(customerPhone)) {
@@ -533,28 +522,121 @@ export class BookingService {
         throw new BadRequestException('Vui lòng nhập địa chỉ nhận xe');
       }
 
-      // 6. Chuẩn hóa thông tin xe
-      const licensePlate = this.normalizePlate(dto.licensePlate);
+      // 4. Xác định phương tiện.
+      let selectedVehicle: Vehicle | null = null;
+
+      if (dto.vehicleId) {
+        if (!customer) {
+          throw new ForbiddenException('Bạn cần đăng nhập để chọn xe đã lưu');
+        }
+
+        selectedVehicle = await manager.findOneBy(Vehicle, {
+          id: dto.vehicleId,
+          customerId: customer.id,
+        });
+
+        if (!selectedVehicle) {
+          throw new NotFoundException(
+            'Phương tiện không tồn tại trong tài khoản',
+          );
+        }
+      }
+
+      const licensePlate = this.normalizePlate(
+        selectedVehicle ? selectedVehicle.licensePlate : dto.licensePlate,
+      );
+
+      const vehicleType = selectedVehicle
+        ? selectedVehicle.vehicleType
+        : dto.vehicleType;
 
       if (!licensePlate) {
         throw new BadRequestException('Biển số xe không hợp lệ');
       }
 
-      const vehicleSnapshot = {
+      if (slot.vehicleType !== vehicleType) {
+        throw new BadRequestException('Khung giờ không phù hợp với loại xe');
+      }
+
+      const vehicleSnapshot: Record<string, unknown> = {
         licensePlate,
-        vehicleType: dto.vehicleType,
-        brand: dto.brand?.trim() || null,
-        model: dto.model?.trim() || null,
-        manufactureYear: dto.manufactureYear ?? null,
-        chassisNumber: dto.chassisNumber?.trim() || null,
-        engineNumber: dto.engineNumber?.trim() || null,
-        seats: dto.seats ?? null,
-        payloadKg: dto.payloadKg || null,
-        inspectionExpiryDate: dto.inspectionExpiryDate || null,
-        insuranceExpiryDate: dto.insuranceExpiryDate || null,
+        vehicleType,
+        brand: selectedVehicle
+          ? selectedVehicle.brand
+          : dto.brand?.trim() || null,
+        model: selectedVehicle
+          ? selectedVehicle.model
+          : dto.model?.trim() || null,
+        manufactureYear: selectedVehicle
+          ? selectedVehicle.manufactureYear
+          : (dto.manufactureYear ?? null),
+        chassisNumber: selectedVehicle
+          ? selectedVehicle.chassisNumber
+          : dto.chassisNumber?.trim() || null,
+        engineNumber: selectedVehicle
+          ? selectedVehicle.engineNumber
+          : dto.engineNumber?.trim() || null,
+        seats: selectedVehicle ? selectedVehicle.seats : (dto.seats ?? null),
+        payloadKg: selectedVehicle
+          ? selectedVehicle.payloadKg
+          : dto.payloadKg || null,
+        inspectionExpiryDate: selectedVehicle
+          ? selectedVehicle.inspectionExpiryDate
+          : dto.inspectionExpiryDate || null,
+        insuranceExpiryDate: selectedVehicle
+          ? selectedVehicle.insuranceExpiryDate
+          : dto.insuranceExpiryDate || null,
       };
 
-      // 7. Giá dịch vụ do Backend xác định
+      // 5. Nếu khách đăng nhập nhập xe mới và chọn lưu.
+      // Thao tác nằm chung transaction với booking.
+      if (customer && !selectedVehicle && dto.saveVehicle === true) {
+        const existingVehicles = await manager.findBy(Vehicle, {
+          customerId: customer.id,
+        });
+
+        selectedVehicle =
+          existingVehicles.find(
+            (item) => this.normalizePlate(item.licensePlate) === licensePlate,
+          ) ?? null;
+
+        if (selectedVehicle) {
+          throw new ConflictException(
+            'Xe đã được lưu trong tài khoản. ' +
+              'Vui lòng chọn xe có sẵn thay vì lưu trùng.',
+          );
+        }
+
+        selectedVehicle = await manager.save(
+          Vehicle,
+          manager.create(Vehicle, {
+            customerId: customer.id,
+            licensePlate,
+            vehicleType,
+            brand: dto.brand?.trim() || null,
+            model: dto.model?.trim() || null,
+            manufactureYear: dto.manufactureYear ?? null,
+            chassisNumber: dto.chassisNumber?.trim() || null,
+            engineNumber: dto.engineNumber?.trim() || null,
+            seats: dto.seats ?? null,
+            payloadKg: dto.payloadKg || null,
+            inspectionExpiryDate: dto.inspectionExpiryDate || null,
+            insuranceExpiryDate: dto.insuranceExpiryDate || null,
+            note: null,
+          }),
+        );
+      }
+
+      // 6. Kiểm tra năng lực tại thời điểm ghi booking.
+      const capacity = await this.effectiveCapacity(manager, slot);
+
+      if (slot.reservedCount >= capacity) {
+        throw new ConflictException(
+          'Khung giờ đã hết suất đăng kiểm hoặc nhân viên phụ trách',
+        );
+      }
+
+      // 7. Giá do Backend quyết định.
       const serviceFee = Number(service.basePrice);
 
       if (!Number.isFinite(serviceFee) || serviceFee < 0) {
@@ -568,12 +650,12 @@ export class BookingService {
         .slice(0, 16)
         .toUpperCase()}`;
 
-      // 8. Tạo booking không cần User
+      // 8. Tạo booking với liên kết và snapshot.
       const bookingEntity = manager.create(Booking, {
         bookingCode,
-
-        customerId: null,
-        vehicleId: null,
+        customerId: customer?.id ?? null,
+        vehicleId: selectedVehicle?.id ?? null,
+        vehicleSnapshot,
 
         centerId: center.id,
         slotId: slot.id,
@@ -586,7 +668,6 @@ export class BookingService {
         customerEmail: dto.customerEmail?.trim().toLowerCase() || null,
 
         licensePlate,
-        vehicleSnapshot,
         serviceName: service.name,
 
         serviceFee: fee,
@@ -599,14 +680,10 @@ export class BookingService {
         pickupAddress: dto.pickupRequired
           ? dto.pickupAddress?.trim() || null
           : null,
-
         pickupLatitude: null,
         pickupLongitude: null,
-
         returnAddress: dto.returnAddress?.trim() || null,
-
         customerNote: dto.customerNote?.trim() || null,
-
         internalNote: null,
 
         phoneVerifiedAt: null,
@@ -618,20 +695,21 @@ export class BookingService {
 
       const booking = await manager.save(Booking, bookingEntity);
 
-      // 9. Giữ suất ngay trong transaction
+      // 9. Giữ suất cùng transaction.
       slot.reservedCount += 1;
-
       await manager.save(CenterTimeSlot, slot);
 
-      // 10. Ghi lịch sử Guest Booking
+      // 10. Lịch sử trạng thái.
       await manager.save(
         BookingStatusHistory,
         manager.create(BookingStatusHistory, {
           bookingId: booking.id,
           fromStatus: null,
           toStatus: 'pending_confirmation',
-          actorUserId: null,
-          note: 'Khách hàng tạo booking không cần đăng nhập',
+          actorUserId: userId ?? null,
+          note: customer
+            ? 'Khách hàng đã đăng nhập tạo booking'
+            : 'Khách hàng tạo booking không cần đăng nhập',
         }),
       );
 
@@ -640,6 +718,7 @@ export class BookingService {
         bookingCode: booking.bookingCode,
         status: booking.status,
         totalAmount: booking.totalAmount,
+        vehicleId: booking.vehicleId,
       };
     });
   }

@@ -100,6 +100,15 @@ export class CreateBookingDto {
   @IsOptional()
   @IsString()
   customerNote?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d+$/)
+  vehicleId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  saveVehicle?: boolean;
 }
 
 export class SlotQueryDto {

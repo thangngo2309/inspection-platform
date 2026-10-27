@@ -27,6 +27,10 @@ import { CustomerVehiclesController } from './customer-vehicles/customer-vehicle
 import { CustomerVehiclesService } from './customer-vehicles/customer-vehicles.service.js';
 import { BookingLookupController } from './bookings/booking-lookup.controller.js';
 import { BookingLookupService } from './bookings/booking-lookup.service.js';
+import { CustomerAccountController } from './customer-account/customer-account.controller.js';
+import { CustomerAccountService } from './customer-account/customer-account.service.js';
+import { CustomerVehicleController } from './customer-account/customer-vehicle.controller.js';
+import { CustomerVehicleService } from './customer-account/customer-vehicle.service.js';
 
 @Module({
   imports: [
@@ -44,6 +48,8 @@ import { BookingLookupService } from './bookings/booking-lookup.service.js';
     SlotController,
     CustomerVehiclesController,
     BookingLookupController,
+    CustomerAccountController,
+    CustomerVehicleController,
   ],
   providers: [
     AuthService,
@@ -55,6 +61,8 @@ import { BookingLookupService } from './bookings/booking-lookup.service.js';
     SlotService,
     CustomerVehiclesService,
     BookingLookupService,
+    CustomerAccountService,
+    CustomerVehicleService,
   ],
   exports: [
     TypeOrmModule,

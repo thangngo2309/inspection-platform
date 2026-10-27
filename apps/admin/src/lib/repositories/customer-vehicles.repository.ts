@@ -20,10 +20,15 @@ export interface VehicleRow {
   manufactureYear: number | null;
   chassisNumber: string | null;
   engineNumber: string | null;
+
   bookingCount: number;
   lastBookingAt: string | null;
   customerName: string;
   customerPhone: string;
+
+  registeredVehicleId: string | null;
+  customerId: string | null;
+  isRegistered: boolean;
 }
 
 export interface BookingHistoryRow {

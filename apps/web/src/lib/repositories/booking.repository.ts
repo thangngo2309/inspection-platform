@@ -7,6 +7,7 @@ import type {
 } from "@inspection/contracts";
 
 import { apiClient } from "../api-client";
+import { getAuth } from "../auth";
 
 export const bookingRepository = {
   async centers(): Promise<BookingCenter[]> {
@@ -36,7 +37,12 @@ export const bookingRepository = {
   },
 
   async create(payload: CreateBookingPayload): Promise<CreatedBooking> {
-    const response = await apiClient.post<CreatedBooking>("/bookings", payload);
+    const accessToken = getAuth()?.accessToken;
+
+    const endpoint = accessToken ? "/account/bookings" : "/bookings";
+
+    const response = await apiClient.post<CreatedBooking>(endpoint, payload);
+
     return response.data;
   },
 };
