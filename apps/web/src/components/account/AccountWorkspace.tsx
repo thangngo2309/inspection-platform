@@ -203,7 +203,7 @@ function VehicleCard({ vehicle }: { vehicle: MyVehicle }) {
 
       <div className="mt-5 border-t border-slate-100 pt-4">
         <p className="text-xs text-slate-500">
-          Booking gần nhất: {dateText(vehicle.lastBookingAt)}
+          Booking gần nhất: {dateText(vehicle.lastBookingAt || "")}
         </p>
       </div>
 

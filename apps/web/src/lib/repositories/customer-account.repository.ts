@@ -36,6 +36,8 @@ export interface MyVehicle {
   note: string | null;
   createdAt: string;
   updatedAt: string;
+  bookingCount?: number;
+  lastBookingAt?: string | null;
 }
 
 export interface MyPage<T> {
