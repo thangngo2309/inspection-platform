@@ -1,0 +1,574 @@
+
+name: Deploy Inspection Development
+
+on:
+  push:
+    branches:
+      - dev
+
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-inspection-development
+  cancel-in-progress: false
+
+jobs:
+  deploy-dev:
+    name: Deploy Inspection DEV
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      # =====================================================
+      # INSTALL SSH TOOLS
+      # =====================================================
+
+      - name: Install sshpass
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+
+      # =====================================================
+      # CONFIGURE SSH HOST KEY
+      # =====================================================
+
+      - name: Configure VPS host key
+        env:
+          SSH_KNOWN_HOSTS: ${{ secrets.INSPECTION_SSH_KNOWN_HOSTS }}
+        run: |
+          set -Eeuo pipefail
+
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+
+          test -n "$SSH_KNOWN_HOSTS" || {
+            echo "Missing INSPECTION_SSH_KNOWN_HOSTS secret"
+            exit 1
+          }
+
+          printf '%s\n' "$SSH_KNOWN_HOSTS" \
+            > "$HOME/.ssh/known_hosts"
+
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      # =====================================================
+      # DEPLOY
+      # =====================================================
+
+      - name: Deploy Inspection DEV
+        env:
+          SSHPASS: ${{ secrets.INSPECTION_SSH_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+
+          test -n "$SSHPASS" || {
+            echo "Missing INSPECTION_SSH_PASSWORD secret"
+            exit 1
+          }
+
+          sshpass -e ssh \
+            -p 22 \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o ConnectTimeout=20 \
+            root@157.66.100.68 \
+            'bash -se' <<'EOF'
+
+          set -Eeuo pipefail
+
+          # =================================================
+          # CONFIG
+          # =================================================
+
+          PROJECT_DIR="/root/inspection-platform"
+          BRANCH="dev"
+          COMPOSE_FILE="docker-compose.dev.yml"
+          ENV_FILE=".env.dev"
+
+          API_URL="http://127.0.0.1:9000/api/health"
+          ADMIN_URL="http://127.0.0.1:9001/login"
+          WEB_URL="http://127.0.0.1:9002/"
+
+          # =================================================
+          # FUNCTIONS
+          # =================================================
+
+          compose() {
+            docker compose \
+              --env-file "$ENV_FILE" \
+              -f "$COMPOSE_FILE" \
+              "$@"
+          }
+
+          print_diagnostics() {
+            if [ ! -f "$COMPOSE_FILE" ] \
+              || [ ! -f "$ENV_FILE" ]; then
+              return
+            fi
+
+            echo ""
+            echo "========== CONTAINER STATUS =========="
+
+            compose --profile tools ps -a || true
+
+            for SERVICE in postgres redis migrate api admin web
+            do
+              echo ""
+              echo "========== LOGS: $SERVICE =========="
+
+              compose \
+                --profile tools \
+                logs \
+                --tail=100 \
+                "$SERVICE" \
+                2>/dev/null \
+                || true
+            done
+          }
+
+          cleanup_on_error() {
+            EXIT_CODE=$?
+
+            trap - ERR
+
+            echo ""
+            echo "========================================"
+            echo "DEPLOY INSPECTION DEV FAILED"
+            echo "Exit code: $EXIT_CODE"
+            echo "========================================"
+
+            if [ -d "$PROJECT_DIR" ]; then
+              cd "$PROJECT_DIR" || true
+              print_diagnostics
+            fi
+
+            echo ""
+            echo "Không tự động xóa containers hoặc volumes."
+            echo "Không chạy docker compose down -v."
+
+            exit "$EXIT_CODE"
+          }
+
+          trap cleanup_on_error ERR
+
+          wait_http() {
+            SERVICE="$1"
+            URL="$2"
+            READY=false
+
+            echo ""
+            echo "========================================"
+            echo "WAIT FOR $SERVICE"
+            echo "URL: $URL"
+            echo "========================================"
+
+            for ATTEMPT in $(seq 1 45)
+            do
+              if curl \
+                --fail \
+                --location \
+                --silent \
+                --max-time 5 \
+                "$URL" \
+                >/dev/null
+              then
+                echo "$SERVICE is ready."
+                READY=true
+                break
+              fi
+
+              CONTAINER_ID="$(compose ps -q "$SERVICE")"
+
+              if [ -z "$CONTAINER_ID" ]; then
+                echo "$SERVICE container was not found."
+                return 1
+              fi
+
+              RUNNING="$(
+                docker inspect \
+                  --format='{{.State.Running}}' \
+                  "$CONTAINER_ID" \
+                  2>/dev/null \
+                  || echo false
+              )"
+
+              if [ "$RUNNING" != "true" ]; then
+                echo "$SERVICE container stopped."
+                compose logs --tail=150 "$SERVICE" || true
+                return 1
+              fi
+
+              echo "Waiting for $SERVICE ($ATTEMPT/45)"
+
+              sleep 2
+            done
+
+            if [ "$READY" != "true" ]; then
+              echo "$SERVICE health check timeout."
+              compose logs --tail=150 "$SERVICE" || true
+              return 1
+            fi
+          }
+
+          # =================================================
+          # CHECK PROJECT
+          # =================================================
+
+          echo ""
+          echo "========================================"
+          echo "CHECK PROJECT"
+          echo "========================================"
+
+          test -d "$PROJECT_DIR" || {
+            echo "Project directory not found: $PROJECT_DIR"
+            exit 1
+          }
+
+          cd "$PROJECT_DIR"
+
+          test -d ".git" || {
+            echo "$PROJECT_DIR is not a Git repository"
+            exit 1
+          }
+
+          # =================================================
+          # GET SOURCE
+          # =================================================
+
+          echo ""
+          echo "========================================"
+          echo "FETCH LATEST SOURCE"
+          echo "========================================"
+
+          git fetch --prune origin "$BRANCH"
+
+          if git show-ref \
+            --verify \
+            --quiet \
+            "refs/heads/$BRANCH"
+          then
+            git checkout "$BRANCH"
+          else
+            git checkout -b "$BRANCH" "origin/$BRANCH"
+          fi
+
+          git reset --hard "origin/$BRANCH"
+
+          echo ""
+          echo "Current branch:"
+          git branch --show-current
+
+          echo ""
+          echo "Current commit:"
+          git log -1 --oneline
+
+          # =================================================
+          # CHECK REQUIRED FILES
+          # =================================================
+
+          echo ""
+          echo "========================================"
+          echo "CHECK REQUIRED FILES"
+          echo "========================================"
+
+          for FILE in \
+            "$ENV_FILE" \
+            "$COMPOSE_FILE" \
+            "Dockerfile.server-dev" \
+            ".dockerignore" \
+            "package.json" \
+            "pnpm-lock.yaml" \
+            "pnpm-workspace.yaml"
+          do
+            if [ ! -f "$FILE" ]; then
+              echo "Missing file: $FILE"
+              exit 1
+            fi
+          done
+
+          # =================================================
+          # CHECK ENV VARIABLES
+          # =================================================
+
+          echo ""
+          echo "========================================"
+          echo "CHECK ENVIRONMENT VARIABLES"
+          echo "========================================"
+
+          REQUIRED_ENV_VARS="
+          API_PORT
+          ADMIN_PORT
+          WEB_PORT
+          DB_HOST_PORT
+          REDIS_HOST_PORT
+          DB_USERNAME
+          DB_PASSWORD
+          DB_DATABASE
+          REDIS_PASSWORD
+          JWT_ACCESS_SECRET
+          JWT_REFRESH_SECRET
+          NEXT_PUBLIC_API_URL
+          "
+
+          for ENV_NAME in $REQUIRED_ENV_VARS
+          do
+            if ! grep -q "^${ENV_NAME}=." "$ENV_FILE"
+            then
+              echo "Missing environment variable: $ENV_NAME"
+              exit 1
+            fi
+          done
+
+          chmod 600 "$ENV_FILE"
+
+          # =================================================
+          # CHECK PORT AVAILABILITY
+          # =================================================
+
+          echo ""
+          echo "========================================"
+          echo "CHECK DEPLOYMENT PORTS"
+          echo "========================================"
+
+          # Check collisions against OTHER projects only.
+          # Existing Inspection containers can already
+          # legitimately bind the requested ports.
+
+          for PORT in 9000 9001 9002 9003 9004
+          do
+            OTHER_CONTAINERS="$(
+              docker ps \
+                --format '{{.Names}} {{.Ports}}' \
+                | grep -E "(:|0\\.0\\.0\\.0:|127\\.0\\.0\\.1:)$PORT->" \
+                | grep -v '^inspection-development-' \
+                || true
+            )"
+
+            if [ -n "$OTHER_CONTAINERS" ]; then
+              echo "Warning: Port $PORT may be in use:"
+              echo "$OTHER_CONTAINERS"
+              echo "Docker will verify binding during startup."
+            fi
+          done
+
+          # =================================================
+          # VALIDATE DOCKER COMPOSE
+          # =================================================
+
+          echo ""
+          echo "========================================"
+          echo "VALIDATE DOCKER COMPOSE"
+          echo "========================================"
+
+          docker --version
+          docker compose version
+
+          compose --profile tools config --quiet
+
+          SERVICES="$(
+            compose \
+              --profile tools \
+              config \
+              --services
+          )"
+
+          for SERVICE in \
+            postgres \
+            redis \
+            migrate \
+            api \
+            admin \
+            web
+          do
+            echo "$SERVICES" | grep -qx "$SERVICE" || {
+              echo "Missing Docker Compose service: $SERVICE"
+              exit 1
+            }
+          done
+
+          # =================================================
+          # BUILD ALL IMAGES FIRST
+          # =================================================
+
+          echo ""
+          echo "========================================"
+          echo "BUILD DOCKER IMAGES"
+          echo "========================================"
+
+          compose \
+            --profile tools \
+            build \
+            migrate \
+            api \
+            admin \
+            web
+
+          echo ""
+          echo "All Docker images built successfully."
+
+          # =================================================
+          # START POSTGRESQL + REDIS
+          # =================================================
+
+          echo ""
+          echo "========================================"
+          echo "START POSTGRESQL + REDIS"
+          echo "========================================"
+
+          compose up -d postgres redis
+
+          INFRA_READY=false
+
+          for ATTEMPT in $(seq 1 45)
+          do
+            POSTGRES_ID="$(compose ps -q postgres)"
+            REDIS_ID="$(compose ps -q redis)"
+
+            POSTGRES_HEALTH="$(
+              docker inspect \
+                --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
+                "$POSTGRES_ID" \
+                2>/dev/null \
+                || echo unavailable
+            )"
+
+            REDIS_HEALTH="$(
+              docker inspect \
+                --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
+                "$REDIS_ID" \
+                2>/dev/null \
+                || echo unavailable
+            )"
+
+            echo "Postgres=$POSTGRES_HEALTH | Redis=$REDIS_HEALTH ($ATTEMPT/45)"
+
+            if [ "$POSTGRES_HEALTH" = "healthy" ] \
+              && [ "$REDIS_HEALTH" = "healthy" ]
+            then
+              INFRA_READY=true
+              break
+            fi
+
+            sleep 2
+          done
+
+          if [ "$INFRA_READY" != "true" ]; then
+            echo "PostgreSQL or Redis is not healthy."
+            exit 1
+          fi
+
+          # =================================================
+          # DATABASE MIGRATION
+          # =================================================
+
+          echo ""
+          echo "========================================"
+          echo "RUN DATABASE MIGRATIONS"
+          echo "========================================"
+
+          compose \
+            --profile tools \
+            run \
+            --rm \
+            --no-deps \
+            -T \
+            migrate \
+            </dev/null
+
+          echo ""
+          echo "Migrations completed successfully."
+
+          # =================================================
+          # START APPLICATIONS
+          # =================================================
+
+          echo ""
+          echo "========================================"
+          echo "START API + ADMIN + WEB"
+          echo "========================================"
+
+          compose up \
+            -d \
+            --no-build \
+            --remove-orphans \
+            api \
+            admin \
+            web
+
+          # =================================================
+          # HEALTH CHECKS
+          # =================================================
+
+          wait_http api "$API_URL"
+
+          wait_http admin "$ADMIN_URL"
+
+          wait_http web "$WEB_URL"
+
+          # =================================================
+          # FINAL STATUS
+          # =================================================
+
+          echo ""
+          echo "========================================"
+          echo "FINAL DOCKER STATUS"
+          echo "========================================"
+
+          compose ps -a
+
+          echo ""
+          echo "========================================"
+          echo "API HEALTH RESPONSE"
+          echo "========================================"
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            "$API_URL"
+
+          echo ""
+
+          # =================================================
+          # CLEANUP UNUSED IMAGES
+          # =================================================
+
+          echo ""
+          echo "========================================"
+          echo "CLEANUP DANGLING IMAGES"
+          echo "========================================"
+
+          docker image prune -f
+
+          # =================================================
+          # SUCCESS
+          # =================================================
+
+          trap - ERR
+
+          echo ""
+          echo "========================================"
+          echo "DEPLOY INSPECTION DEV SUCCESS"
+          echo "========================================"
+
+          echo ""
+          echo "API:"
+          echo "http://157.66.100.68:9000/api"
+
+          echo ""
+          echo "ADMIN:"
+          echo "http://157.66.100.68:9001"
+
+          echo ""
+          echo "CUSTOMER WEB:"
+          echo "http://157.66.100.68:9002"
+
+          echo ""
+          echo "POSTGRESQL (VPS LOCAL ONLY):"
+          echo "127.0.0.1:9003"
+
+          echo ""
+          echo "REDIS (VPS LOCAL ONLY):"
+          echo "127.0.0.1:9004"
+
+          EOF

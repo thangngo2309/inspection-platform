@@ -1,0 +1,97 @@
+
+# syntax=docker/dockerfile:1
+
+FROM node:22-bookworm-slim AS base
+
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+ENV NEXT_TELEMETRY_DISABLED=1
+
+RUN corepack enable
+
+WORKDIR /app
+
+# =====================================================
+# INSTALL MONOREPO DEPENDENCIES
+# =====================================================
+
+FROM base AS dependencies
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+
+COPY apps/api/package.json ./apps/api/package.json
+COPY apps/admin/package.json ./apps/admin/package.json
+COPY apps/web/package.json ./apps/web/package.json
+
+COPY packages ./packages
+
+RUN pnpm install --frozen-lockfile
+
+# =====================================================
+# BUILD API + ADMIN + WEB
+# =====================================================
+
+FROM dependencies AS builder
+
+COPY . .
+
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
+RUN test -n "$NEXT_PUBLIC_API_URL"
+
+RUN pnpm --filter @inspection/api build
+
+RUN pnpm --filter @inspection/admin build
+
+RUN pnpm --filter @inspection/web build
+
+# =====================================================
+# RUNTIME BASE
+# =====================================================
+
+FROM base AS runtime-base
+
+ENV NODE_ENV=production
+
+COPY --from=builder /app /app
+
+WORKDIR /app
+
+# =====================================================
+# API
+# =====================================================
+
+FROM runtime-base AS api
+
+EXPOSE 9000
+
+CMD ["pnpm", "--filter", "@inspection/api", "start:prod"]
+
+# =====================================================
+# ADMIN
+# =====================================================
+
+FROM runtime-base AS admin
+
+EXPOSE 9001
+
+CMD ["pnpm", "--filter", "@inspection/admin", "exec", "next", "start", "-H", "0.0.0.0", "-p", "9001"]
+
+# =====================================================
+# CUSTOMER WEB
+# =====================================================
+
+FROM runtime-base AS web
+
+EXPOSE 9002
+
+CMD ["pnpm", "--filter", "@inspection/web", "exec", "next", "start", "-H", "0.0.0.0", "-p", "9002"]
+
+# =====================================================
+# DATABASE MIGRATION
+# =====================================================
+
+FROM runtime-base AS migrate
+
+CMD ["pnpm", "run", "db:migration:run"]

@@ -1,0 +1,226 @@
+
+name: inspection-development
+
+services:
+  # =====================================================
+  # POSTGRESQL
+  # =====================================================
+
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:?DB_USERNAME is required}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      POSTGRES_DB: ${DB_DATABASE:?DB_DATABASE is required}
+
+    ports:
+      - "127.0.0.1:${DB_HOST_PORT:-9003}:${DB_CONTAINER_PORT:-5432}"
+
+    volumes:
+      - inspection_postgres_data:/var/lib/postgresql/data
+
+    networks:
+      - inspection_internal
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  # =====================================================
+  # REDIS
+  # =====================================================
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+
+    command:
+      - /bin/sh
+      - -c
+      - exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
+
+    ports:
+      - "127.0.0.1:${REDIS_HOST_PORT:-9004}:${REDIS_CONTAINER_PORT:-6379}"
+
+    volumes:
+      - inspection_redis_data:/data
+
+    networks:
+      - inspection_internal
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - redis-cli -a "$$REDIS_PASSWORD" --no-auth-warning ping | grep -q PONG
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # =====================================================
+  # DATABASE MIGRATION
+  # =====================================================
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.server-dev
+      target: migrate
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?NEXT_PUBLIC_API_URL is required}
+
+    env_file:
+      - .env.dev
+
+    environment:
+      NODE_ENV: production
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    networks:
+      - inspection_internal
+
+    restart: "no"
+
+    profiles:
+      - tools
+
+  # =====================================================
+  # NESTJS API
+  # =====================================================
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.server-dev
+      target: api
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?NEXT_PUBLIC_API_URL is required}
+
+    restart: unless-stopped
+
+    env_file:
+      - .env.dev
+
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      API_PORT: "9000"
+
+      DB_HOST: postgres
+      DB_PORT: "5432"
+
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+
+    ports:
+      - "0.0.0.0:${API_PORT:-9000}:9000"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    networks:
+      - inspection_internal
+
+  # =====================================================
+  # NEXT.JS ADMIN
+  # =====================================================
+
+  admin:
+    build:
+      context: .
+      dockerfile: Dockerfile.server-dev
+      target: admin
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?NEXT_PUBLIC_API_URL is required}
+
+    restart: unless-stopped
+
+    env_file:
+      - .env.dev
+
+    environment:
+      NODE_ENV: production
+      ADMIN_PORT: "9001"
+      PORT: "9001"
+
+    ports:
+      - "0.0.0.0:${ADMIN_PORT:-9001}:9001"
+
+    depends_on:
+      - api
+
+    networks:
+      - inspection_internal
+
+  # =====================================================
+  # NEXT.JS CUSTOMER WEB
+  # =====================================================
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.server-dev
+      target: web
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?NEXT_PUBLIC_API_URL is required}
+
+    restart: unless-stopped
+
+    env_file:
+      - .env.dev
+
+    environment:
+      NODE_ENV: production
+      WEB_PORT: "9002"
+      PORT: "9002"
+
+    ports:
+      - "0.0.0.0:${WEB_PORT:-9002}:9002"
+
+    depends_on:
+      - api
+
+    networks:
+      - inspection_internal
+
+# =======================================================
+# PERSISTENT VOLUMES
+# =======================================================
+
+volumes:
+  inspection_postgres_data:
+    name: inspection_postgres_dev_data
+
+  inspection_redis_data:
+    name: inspection_redis_dev_data
+
+# =======================================================
+# PRIVATE NETWORK
+# =======================================================
+
+networks:
+  inspection_internal:
+    name: inspection_dev_network
+    driver: bridge
